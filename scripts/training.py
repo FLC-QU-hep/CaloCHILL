@@ -14,10 +14,10 @@ import numpy as np
 import torch
 import torch.distributed as dist
 from adam_mini import Adam_mini
-from models.CaloHadronic import (
-    CaloHadronic_Attention,
-    CaloHadronic_FM,
-    CompressorVAE,
+from models.calochill import (
+    LMF,
+    VAE,
+    LatentEDM,
 )
 from models.CaloHadronic_legacy import CaloClouds2_Attention
 from models.common import ShapeMismatchError
@@ -49,7 +49,9 @@ from utils.plotting_validation import (
     plot_tsne,
 )
 
-os.environ["LIBRARY_PATH"] = "/usr/local/cuda/lib64"
+os.environ.setdefault(
+    "LIBRARY_PATH", "/usr/local/cuda/lib64"
+)  # CUDA libraries for the KeOps/Triton builds
 
 
 def _weight_norms(module):
@@ -131,9 +133,9 @@ def load_and_adjust_configs(world_size, device_count):
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--net",
-        default="Compressor",
+        default="VAE",
         type=str,
-        choices=["Compressor", "LatentDiff", "CaloHadronic"],
+        choices=["VAE", "LMF", "CaloHadronic"],
     )
     parser.add_argument("--dataset", default="pions", type=str)
     parser.add_argument("--test", action="store_true")
@@ -145,10 +147,10 @@ def load_and_adjust_configs(world_size, device_count):
 
     if params.net == "CaloHadronic":
         config_model_path = "configs/configs_CaloHadronic.yaml"
-    elif params.net == "LatentDiff":
-        config_model_path = "configs/configs_LatentDiffusion.yaml"
-    elif params.net == "Compressor":
-        config_model_path = "configs/configs_compressor.yaml"
+    elif params.net == "LMF":
+        config_model_path = "configs/configs_LMF.yaml"
+    elif params.net == "VAE":
+        config_model_path = "configs/configs_VAE.yaml"
     # CONFIG_MODEL points a job at its own copy of the model config (same basename,
     # so the copy saved in the run folder keeps the name later stages look for),
     # leaving the shared file free for other queued jobs
@@ -169,13 +171,13 @@ def load_and_adjust_configs(world_size, device_count):
         cfg_model.model.model_path = resumed_model_path
 
     cfg_compressor = None
-    if params.net == "LatentDiff":
+    if params.net == "LMF":
         config_vae_path = (
             os.path.join(
                 cfg_data.log_dir,
                 os.path.dirname(cfg_model.model.vae_path),
             )
-            + "/configs_compressor.yaml"
+            + "/configs_VAE.yaml"
         )
         cfg_compressor = Config.from_yaml(config_vae_path)
 
@@ -242,7 +244,7 @@ class Train(Module):
             self.get_model(self.local_rank, net=net)
         )
 
-        if self.net == "Compressor":
+        if self.net == "VAE":
             self.optimizer, self.scheduler = self.get_optimizer_scheduler_compressor(
                 self.model, checkpoint
             )
@@ -262,7 +264,7 @@ class Train(Module):
 
     def get_model(self, gpu_id, net):
         cfg_model.downsample_factor = None
-        if net == "LatentDiff":
+        if net == "LMF":
             cfg_model.transformer.input_feats = int(
                 cfg_compressor.vae.z_dim * cfg_compressor.vae.n_layers
             )
@@ -272,14 +274,14 @@ class Train(Module):
                 else cfg_compressor.vae.p_dim_pions
             )
 
-        if net == "Compressor":
+        if net == "VAE":
             cfg_model.vae.calorimeter_layers = cfg_data.calorimeter_layers
             cfg_model.vae.p_dim = (
                 cfg_model.vae.p_dim_photons
                 if params.dataset == "photons"
                 else cfg_model.vae.p_dim_pions
             )
-        elif net == "LatentDiff":
+        elif net == "LMF":
             cfg_model.transformer.calorimeter_layers = cfg_data.calorimeter_layers
             cfg_compressor.vae.calorimeter_layers = cfg_data.calorimeter_layers
             cfg_compressor.vae.p_dim = (
@@ -290,14 +292,14 @@ class Train(Module):
         else:
             cfg_model.transformer.calorimeter_layers = cfg_data.calorimeter_layers
 
-        # 'edm' -> Karras/EDM diffusion (CaloHadronic_Attention), 'mean_flow' ->
-        # MeanFlow (CaloHadronic_FM, arXiv:2505.13447). Runs predating this option
+        # 'edm' -> Karras/EDM diffusion (LatentEDM), 'mean_flow' ->
+        # MeanFlow (LMF, arXiv:2505.13447). Runs predating this option
         # were all trained with EDM, hence the default.
         generative_model = getattr(cfg_model.model, "generative_model", "edm")
         if generative_model == "edm":
-            model_cls = CaloHadronic_Attention
+            model_cls = LatentEDM
         elif generative_model == "mean_flow":
-            model_cls = CaloHadronic_FM
+            model_cls = LMF
         else:
             raise NotImplementedError(
                 f"model.generative_model must be 'edm' or 'mean_flow', got {generative_model!r}"
@@ -307,11 +309,11 @@ class Train(Module):
             # Oct 2025 point-cloud EDM (run HGx9_ecal_hcal_withT_2025_10_09__13_46_37)
             model = CaloClouds2_Attention(cfg_model)
             model_ema = CaloClouds2_Attention(cfg_model)
-        elif net == "Compressor":
-            model = CompressorVAE(cfg_data, cfg_model.vae)
+        elif net == "VAE":
+            model = VAE(cfg_data, cfg_model.vae)
             model_ema = None
-        elif net == "LatentDiff":
-            vae = CompressorVAE(cfg_data, cfg_compressor.vae)
+        elif net == "LMF":
+            vae = VAE(cfg_data, cfg_compressor.vae)
             model = model_cls(cfg_model, net)
             model_ema = model_cls(cfg_model, net)
         else:
@@ -334,15 +336,11 @@ class Train(Module):
                 if model_ema is not None:
                     model_ema = DDP(model_ema.to(gpu_id), device_ids=[gpu_id])
 
-            vae = (
-                DDP(vae.to(gpu_id), device_ids=[gpu_id])
-                if net == "LatentDiff"
-                else None
-            )
+            vae = DDP(vae.to(gpu_id), device_ids=[gpu_id]) if net == "LMF" else None
         else:
             model = model.to(gpu_id)
             model_ema = model_ema.to(gpu_id) if model_ema is not None else None
-            vae = vae.to(gpu_id) if net == "LatentDiff" else None
+            vae = vae.to(gpu_id) if net == "LMF" else None
 
         if cfg_model.model.model_path is not None:
             new_state_dict, checkpoint, it = load_checkpoint(
@@ -384,7 +382,7 @@ class Train(Module):
                 power=cfg_model.ema_power, max_value=cfg_model.ema_max_value
             )
 
-        if net == "LatentDiff":
+        if net == "LMF":
             new_state_dict, _, _ = load_checkpoint(
                 cfg_data, cfg_model, vae, cfg_model.model.vae_path, logger
             )
@@ -589,7 +587,7 @@ class Train(Module):
         while hasattr(self.model, "module"):
             model = self.model.module
 
-        if self.net == "Compressor":
+        if self.net == "VAE":
             tot = model.reconstruction_and_sampling(
                 val_loader, epoch, device, test=test
             )
@@ -601,7 +599,7 @@ class Train(Module):
                     % (it, all_res["loss"], all_res["kl_loss"], all_res["rec_loss"])
                 )
 
-                others["latentdiff_vae"] = None
+                others["lmf_vae"] = None
 
                 if cfg_model.log_comet:
                     val_metrics = {
@@ -672,7 +670,7 @@ class Train(Module):
                     padding_mask=batch["padding_mask"],
                 )
 
-                if self.net == "LatentDiff":
+                if self.net == "LMF":
                     vae_mod = self.vae
                     while hasattr(vae_mod, "module"):
                         vae_mod = vae_mod.module
@@ -714,7 +712,7 @@ class Train(Module):
 
                     # also decode a sample drawn directly from the VAE's own
                     # prior (z=None -> standard normal), bypassing the
-                    # diffusion model, to compare against the LatentDiff sample
+                    # diffusion model, to compare against the LMF sample
                     fake_shower_vae_, _ = vae_mod.sample(
                         B=batch["cond_feats"].shape[0],
                         N=batch["layer_cond"].shape[1],
@@ -748,7 +746,7 @@ class Train(Module):
                 pm_list.append(batch["padding_mask"].detach().cpu())
                 fake_shower.append(fake_shower_.detach().cpu())
                 cond_feats.append(batch["cond_feats"].detach().cpu())
-                if self.net == "LatentDiff":
+                if self.net == "LMF":
                     z_vae_.append(z_vae_plot.detach().cpu())
                     z_diff_.append(z_diff.detach().cpu())
                     fake_shower_vae.append(fake_shower_vae_.detach().cpu())
@@ -771,7 +769,7 @@ class Train(Module):
                     pad_tensor(x, i, (0, 0, 0, pad_size), 0)
                     pad_tensor(layer, i, (0, 0, 0, pad_size), -1)
                     pad_tensor(pm_list, i, (0, pad_size), 1)
-                    if self.net == "LatentDiff":
+                    if self.net == "LMF":
                         pad_tensor(fake_shower_vae, i, (0, 0, 0, pad_size), 0)
                         pad_tensor(rec_shower, i, (0, 0, 0, pad_size), 0)
 
@@ -781,14 +779,12 @@ class Train(Module):
             cond_feats = torch.cat(cond_feats, dim=0)
             fake_shower = torch.cat(fake_shower, dim=0)
             fake_shower_vae = (
-                torch.cat(fake_shower_vae, dim=0) if self.net == "LatentDiff" else None
+                torch.cat(fake_shower_vae, dim=0) if self.net == "LMF" else None
             )
-            rec_shower = (
-                torch.cat(rec_shower, dim=0) if self.net == "LatentDiff" else None
-            )
+            rec_shower = torch.cat(rec_shower, dim=0) if self.net == "LMF" else None
             mask = torch.cat(pm_list, dim=0)
 
-            if self.net == "LatentDiff":
+            if self.net == "LMF":
                 others["cond_e"] = cond_feats[:, 0]  # incident energy for t-SNE
                 others["cond_feats"], others["latent"], others["posteriors"] = (
                     None,
@@ -823,12 +819,12 @@ class Train(Module):
                             mode="constant",
                             value=0,
                         )
-                others["latentdiff_sample"] = torch.cat(z_diff_, dim=0)
-                others["latentdiff_vae"] = torch.cat(z_vae_, dim=0)
-                others["latentdiff_mask"] = torch.cat(z_mask_, dim=0)
+                others["lmf_sample"] = torch.cat(z_diff_, dim=0)
+                others["lmf_vae"] = torch.cat(z_vae_, dim=0)
+                others["lmf_mask"] = torch.cat(z_mask_, dim=0)
 
             max_cluster = layer.shape[1]
-            if cfg_model.model.model_name == "CaloHadronicVAE":
+            if cfg_model.model.model_name == "CaloCHILL":
                 fake_shower = torch.cat(
                     [fake_shower[:, :, :1], layer, fake_shower[:, :, 1:]], dim=-1
                 )
@@ -958,7 +954,7 @@ class Train(Module):
             "top_points_layers": batch["points_per_layer"].topk(2)[0].sum(dim=1),
         }
 
-        if self.net == "LatentDiff":
+        if self.net == "LMF":
             vae_mod = self.vae
             while hasattr(vae_mod, "module"):
                 vae_mod = vae_mod.module
@@ -1094,7 +1090,7 @@ class Train(Module):
                     self.scheduler,
                 )
 
-        elif self.net == "Compressor":
+        elif self.net == "VAE":
             self.warm_up(self.optimizer, self.it)
             beta = self.beta_fn(
                 self.it, warmup_epochs=50, iters_per_epoch=self.it_per_one_epoch
@@ -1235,9 +1231,9 @@ def main(rank, global_rank, node_rank, world_size):
     if global_rank != 0:
         logging.getLogger("comet_ml").setLevel(logging.WARNING)
     log_dir = None
-    if params.net == "LatentDiff":
+    if params.net == "LMF":
         the_name = params.dataset + "_" + cfg_model.model.vae_path.split("/")[0] + "_"
-        the_name = the_name.replace("VAE", "LatentDiff")
+        the_name = the_name.replace("VAE", "LMF")
         # Tag the run with the generative objective, so 'edm' and 'mean_flow' runs off
         # the same VAE checkpoint get distinct log dirs and comet experiment names.
         the_name += getattr(cfg_model.model, "generative_model", "edm") + "_"
@@ -1316,10 +1312,10 @@ def main(rank, global_rank, node_rank, world_size):
         experiment.log_parameters(cfg_model.__dict__)
         experiment.set_name(log_dir.split("/")[-1])
         if rank == 0:
-            if params.net == "Compressor":
+            if params.net == "VAE":
                 experiment.log_code(file_name=config_model_path)
-            elif params.net == "LatentDiff":
-                experiment.log_code(file_name="configs/configs_LatentDiffusion.yaml")
+            elif params.net == "LMF":
+                experiment.log_code(file_name="configs/configs_LMF.yaml")
             else:
                 experiment.log_code(file_name=config_model_path)
             experiment.log_code(file_name="scripts/training.py")
@@ -1427,7 +1423,7 @@ def main(rank, global_rank, node_rank, world_size):
             if rank == 0 and global_rank == 0:
                 if (it % int(it_per_one_epoch) == 0) or (it == 100):
                     print(f"SAVING at it={it} in {log_dir}")
-                    mod = model if params.net == "Compressor" else model_ema
+                    mod = model if params.net == "VAE" else model_ema
                     while hasattr(mod, "module"):
                         mod = mod.module
                     mod = mod.state_dict()
@@ -1435,7 +1431,7 @@ def main(rank, global_rank, node_rank, world_size):
                     opt_states = {
                         "model": mod,  # save the model in case of compressor, model_ema for diffusion
                         "ema_sched": ema_sched.state_dict()
-                        if params.net != "Compressor"
+                        if params.net != "VAE"
                         else None,
                         "optimizer": optimizer.state_dict(),
                         "scheduler": scheduler.state_dict(),
@@ -1454,7 +1450,7 @@ def main(rank, global_rank, node_rank, world_size):
         if params.test:
             break
 
-    if params.net == "Compressor":
+    if params.net == "VAE":
         logger.info("Final --> running test data...")
         train.val(dataloader_test, it, epoch, rank)
 

@@ -1,6 +1,6 @@
 # Defaults = the paper's CaloCHILL model (large LMF, d_s 256); other paper models in the comments.
 name: 'HGx9_LatentDiff_'
-comet_project: "CaloClouds3-LatentDiff"
+comet_project: "CaloCHILL-LMF"
 log_comet: true
 
 device: "cuda"
@@ -11,8 +11,8 @@ common:
   include_time: true # false for the no-time LMF (with the no-time VAE below)
 
 model:
-  model_name: 'CaloHadronicVAE' # choices: ['CaloHadronic', 'CaloHadronicVAE']
-  # VAE trained with configs_compressor.yaml; other d_s / no-time:
+  model_name: 'CaloCHILL' # choices: ['CaloHadronic', 'CaloCHILL']
+  # VAE trained with configs_VAE.yaml; other d_s / no-time:
   #   d_s 64: "vae_ds64/ckpt_best.pt"
   #   d_s 128: "vae_ds128/ckpt_best.pt"
   #   d_s 512: "vae_ds512/ckpt_best.pt"
@@ -53,7 +53,7 @@ transformer:
   layer_cond: true # use y conditioning (layer conditioning)
   cond_feats: 2 # energy + total number of points
   ecal_feats: 0
-  layer_dim: 8 # only for CaloHadronicVAE !=0
+  layer_dim: 8 # only for CaloCHILL !=0
   include_time: ${common.include_time}
   ecal_compressed: false
 
@@ -62,7 +62,7 @@ transformer:
   nhead: 8
   num_layers: 2 # large LMF; 1 for the standard LMF
   dropout: 0.1 # missing key = 0.1
-  # learnable positional embedding over the latent token index (the VAE latent is ordered); zero-init, LatentDiff only
+  # learnable positional embedding over the latent token index (the VAE latent is ordered); zero-init, LMF only
   latent_pos_emb: true
   L: 16
   embed_kwargs:
@@ -106,7 +106,7 @@ energy_calibration_factor: 1.0
 
 # latent training target (edm and mean_flow): 'sample' = posterior draw, 'mu' = mu / scale, mapped back to scale * x + noise * eps before decoding
 latent:
-  target: 'mu' # choices: ['sample', 'mu']; LatentDiff only
+  target: 'mu' # choices: ['sample', 'mu']; LMF only
   scale: 'auto' # std of mu over valid tokens, or a float
   noise: 'auto' # per-dim mean posterior sigma, or a float (0 = decode mu)
   stats_batches: 8 # training batches used for the 'auto' measurement

@@ -184,7 +184,7 @@ class PointCloudNet(nn.Module):
         """`use_sigma_embedding=False` drops `timestep_embeding` and makes `sigma`
         an ignored argument of `forward`. EDM needs it -- sigma is the real noise
         level and the only way the denoiser is told where on the schedule it is.
-        MeanFlow does not: CaloHadronic_FM carries the two times itself, through
+        MeanFlow does not: LMF carries the two times itself, through
         t_embeding and r_embeding summed into `cond`, and was passing a literal
         `torch.ones` for sigma. log(1)/4 = 0 for every sample, so the whole stack
         reduced to one fixed vector added to every token -- redundant with the
@@ -221,12 +221,12 @@ class PointCloudNet(nn.Module):
         # latent is ordered (windowed down/up-sampling over layer-sorted points) and the
         # decoder reads that order, while the banded attention mask is translation-
         # equivariant. Zero init, excluded from weight decay. Off by default so older
-        # checkpoints load; LatentDiff only (downsample_factor is None otherwise).
+        # checkpoints load; LMF only (downsample_factor is None otherwise).
         latent_pos_emb = bool(getattr(args.transformer, "latent_pos_emb", False))
         if latent_pos_emb and downsample_factor is None:
             raise ValueError(
                 "transformer.latent_pos_emb needs the latent token count, but "
-                "downsample_factor is None. It is only set for net='LatentDiff' "
+                "downsample_factor is None. It is only set for net='LMF' "
                 "(see training.py get_model); the hit-level point clouds this net "
                 "is used for otherwise really are unordered."
             )

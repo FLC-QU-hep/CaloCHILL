@@ -6,7 +6,7 @@ import numpy as np
 # ── Color palette ─────────────────────────────────────────────────────────────
 _C_SIM = "#bbbbbb"  # grey   — ground truth
 _C_REC = "#1f77b4"  # blue   — reconstruction
-_C_SAMP = "#2ca02c"  # green  — sampled generation (e.g. LatentDiff)
+_C_SAMP = "#2ca02c"  # green  — sampled generation (e.g. LMF)
 _C_VAE = "#ff7f0e"  # orange — sampled directly from the VAE prior (no diffusion)
 
 
@@ -182,7 +182,7 @@ def plot_during_train(
 ):
     """Diagnostic plots comparing SIM (x2), REC (fake_shower), optionally SAMP
     (samp_shower), and optionally a direct VAE-prior sample (samp_shower_vae) —
-    useful to compare LatentDiff-generated latents against plain VAE-prior latents.
+    useful to compare LMF-generated latents against plain VAE-prior latents.
     """
     k = 2  # example shower index for scatter plots
     has_samp = samp_shower is not None
@@ -700,16 +700,16 @@ def _plot_priors(others, plot_name, experiment, it):
 
 
 def _plot_diffusion_latents(others, plot_name, experiment, it):
-    if others.get("latentdiff_vae") is None:
+    if others.get("lmf_vae") is None:
         return
 
-    B, N, F = others["latentdiff_vae"].shape
-    z_vae = others["latentdiff_vae"].reshape(-1, F)
-    z_diff = others["latentdiff_sample"].reshape(-1, F)
+    B, N, F = others["lmf_vae"].shape
+    z_vae = others["lmf_vae"].reshape(-1, F)
+    z_diff = others["lmf_sample"].reshape(-1, F)
     # Drop the cross-batch zero padding (training.py pads every batch's latent
     # to the longest effective_p_dim); it would add a spike at 0 to both
     # histograms in every dimension.
-    mask = others.get("latentdiff_mask")
+    mask = others.get("lmf_mask")
     if mask is not None:
         mask = np.asarray(mask).reshape(-1)
         z_vae = z_vae[mask]
@@ -751,19 +751,19 @@ def _plot_diffusion_latents(others, plot_name, experiment, it):
     _log_figure(experiment, f"Latent space of Diffusion {plot_name}", fig, it)
 
 
-# ── t-SNE latent space plot (Compressor and LatentDiff) ──────────────────────
+# ── t-SNE latent space plot (VAE and LMF) ──────────────────────
 
 
 def plot_tsne(others, g4, net, experiment, it):
-    """Run shower-level t-SNE on the VAE/LatentDiff latent space."""
+    """Run shower-level t-SNE on the VAE/LMF latent space."""
     try:
         from utils.plotting_t_SNE import plot_vae_tsne_conditioning
     except ImportError:
         from plotting_t_SNE import plot_vae_tsne_conditioning
 
-    if net == "LatentDiff":
-        z_enc_t = others.get("latentdiff_vae")
-        z_samp_t = others.get("latentdiff_sample")
+    if net == "LMF":
+        z_enc_t = others.get("lmf_vae")
+        z_samp_t = others.get("lmf_sample")
         cond_e_t = others.get("cond_e")
         if z_enc_t is None or z_samp_t is None or cond_e_t is None:
             return
@@ -783,7 +783,7 @@ def plot_tsne(others, g4, net, experiment, it):
             else np.asarray(cond_e_t)
         )
 
-    elif net == "Compressor":
+    elif net == "VAE":
         latent_t = others.get("latent")
         samp_latent_t = others.get("sampled_latent")
         cond_feats_t = others.get("cond_feats")

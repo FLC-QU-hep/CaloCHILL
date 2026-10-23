@@ -545,7 +545,7 @@ class PionClouds(Dataset):
                 events[:, :, 3] = events[:, :, 3] - self.cfg.data.log_mean
                 events[:, :, 3] = events[:, :, 3] / self.cfg.data.log_var
 
-        else:  # Compressor or CaloHadronicVAE
+        else:  # VAE or LMF
             events, layer_cond, n_points, padding_mask = (
                 self.get_sorted_events_layercond(
                     events,

@@ -3,6 +3,7 @@ import logging
 import logging.handlers
 import os
 import random
+import socket
 import time
 
 import numpy as np
@@ -280,7 +281,18 @@ def get_new_log_dir(root="./logs", postfix="", prefix="", start_time=time.localt
     return log_dir
 
 
+def default_rendezvous():
+    """torch.distributed needs an address and a port even for one process; torchrun sets
+    them, a plain `python` run on one GPU gets localhost and a free port."""
+    os.environ.setdefault("MASTER_ADDR", "localhost")
+    if "MASTER_PORT" not in os.environ:
+        with socket.socket() as s:
+            s.bind(("", 0))
+            os.environ["MASTER_PORT"] = str(s.getsockname()[1])
+
+
 def ddp_setup_torchrun():
+    default_rendezvous()
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     rank = int(os.environ.get("RANK", 0))
     world_size = int(os.environ.get("WORLD_SIZE", 1))

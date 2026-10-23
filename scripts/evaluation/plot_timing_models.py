@@ -1,6 +1,6 @@
 """Overlay the timing-vs-energy figure for several trained models.
 
-timing_CaloHadronicVAELatent.py plots one run at a time (one line per NFE / batch
+timing.py plots one run at a time (one line per NFE / batch
 size). This script takes one timing CSV per model and draws one line per model
 instead, so latent sizes can be compared on the same axes, with the AllShowers
 timings read from --allshowers-csv as references.
@@ -115,7 +115,7 @@ def main():
     )
     p.add_argument("--nfe", type=int, default=1)
     p.add_argument("--bs", type=int, default=128)
-    p.add_argument("--model-label", default="CaloHadronicVAE MeanFlow")
+    p.add_argument("--model-label", default="CaloCHILL MeanFlow")
     p.add_argument(
         "--ymax",
         type=float,

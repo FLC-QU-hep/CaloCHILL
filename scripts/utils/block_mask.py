@@ -20,7 +20,7 @@ DENSE_MAX_ENTRIES = 2**24
 # a little extra padding for far fewer compiles.
 MAX_LEN_BUCKET = 512
 
-# Shared across BlockMaskCache instances on purpose: the LatentDiff and the VAE decompressor
+# Shared across BlockMaskCache instances on purpose: the LMF and the VAE decompressor
 # build the latent mask from identical inputs. Keyed on shape/type, then confirmed by
 # comparing the actual inputs, so a hit never returns a mask built for a different batch.
 _MASK_MEMO = {}

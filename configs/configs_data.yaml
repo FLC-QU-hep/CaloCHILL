@@ -4,8 +4,8 @@ max_points_photons: 1
 max_points_pions: 5376 # should be divisible by 128
 max_points_per_layer_photons: 1
 max_points_per_layer_pions: 413 # 412 +1
-dataset_path_pions: './dataset/hdf5_HGx9new/all_interactions_pions_regular_ECAL+HCAL_10-90GeV_{}.slcio.root_with_time.hdf5'
-dataset_path_photons: './dataset/hdf5_HGx9new/all_interactions_pions_regular_ECAL+HCAL_10-90GeV_{}.slcio.root_with_time.hdf5'
+dataset_path_pions: ${oc.env:CALOCHILL_DATASET,"./dataset/hdf5_HGx9new/all_interactions_pions_regular_ECAL+HCAL_10-90GeV_{}.slcio.root_with_time.hdf5"}
+dataset_path_photons: ${oc.env:CALOCHILL_DATASET,"./dataset/hdf5_HGx9new/all_interactions_pions_regular_ECAL+HCAL_10-90GeV_{}.slcio.root_with_time.hdf5"}
 norm_cond: true # normalize conditioning to [-1,1]
 log_energy: true
 # mean/std of log(E * 1000) over hits with E > 0

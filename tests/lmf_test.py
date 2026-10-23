@@ -11,7 +11,7 @@ from helpers import (
     make_dataset,
     make_loader,
 )
-from models.CaloHadronic import CaloHadronic_Attention, CaloHadronic_FM
+from models.calochill import LMF, LatentEDM
 
 
 class LatentFlowTest(SyntheticData, unittest.TestCase):
@@ -20,15 +20,13 @@ class LatentFlowTest(SyntheticData, unittest.TestCase):
     a shower."""
 
     def run_latent_model(self, generative_model, model_cls, it):
-        cfg_data, cfg_model = load_configs(
-            "configs_LatentDiffusion.yaml", self.dataset_path
-        )
-        _, cfg_compressor = load_configs("configs_compressor.yaml", self.dataset_path)
+        cfg_data, cfg_model = load_configs("configs_LMF.yaml", self.dataset_path)
+        _, cfg_compressor = load_configs("configs_VAE.yaml", self.dataset_path)
         cfg_model.model.generative_model = generative_model
         cfg_model.latent.stats_batches = 2
         cfg_model.num_steps = 2  # EDM sampler steps, kept short
 
-        # Train.get_model() for --net LatentDiff
+        # Train.get_model() for --net LMF
         cfg_model.transformer.input_feats = int(
             cfg_compressor.vae.z_dim * cfg_compressor.vae.n_layers
         )
@@ -36,15 +34,15 @@ class LatentFlowTest(SyntheticData, unittest.TestCase):
         cfg_model.transformer.calorimeter_layers = cfg_data.calorimeter_layers
         vae = build_vae(cfg_data, cfg_compressor)
         vae.eval().requires_grad_(False)
-        model = model_cls(cfg_model, "LatentDiff")
+        model = model_cls(cfg_model, "LMF")
 
-        loader = make_loader(make_dataset(cfg_data, cfg_model, "LatentDiff"))
+        loader = make_loader(make_dataset(cfg_data, cfg_model, "LMF"))
         # main(): latent target 'mu' measures latent_scale / noise once at start-up
         model.measure_latent_stats(vae, loader, "cpu")
         self.assertEqual(int(model.latent_stats_ready), 1)
         self.assertTrue(float(model.latent_scale) > 0)
 
-        # Train.forward() for --net LatentDiff
+        # Train.forward() for --net LMF
         batch = first_batch(loader)
         x = model.encode_latent_target(
             vae,
@@ -106,11 +104,11 @@ class LatentFlowTest(SyntheticData, unittest.TestCase):
 
     def test_mean_flow(self):
         # it=10 also runs the one-step diagnostics training logs
-        model = self.run_latent_model("mean_flow", CaloHadronic_FM, it=10)
+        model = self.run_latent_model("mean_flow", LMF, it=10)
         self.assertTrue(model.mf_metrics)
 
     def test_edm(self):
-        self.run_latent_model("edm", CaloHadronic_Attention, it=1)
+        self.run_latent_model("edm", LatentEDM, it=1)
 
 
 if __name__ == "__main__":

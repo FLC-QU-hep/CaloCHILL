@@ -8,7 +8,6 @@ One figure per conditioning variable → three figures total, each showing
 z_encoded (left) and z_sampled (right) side-by-side.
 """
 
-import h5py
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
@@ -435,35 +434,3 @@ def plot_vae_tsne_conditioning(
         return [(fig3, axes3)]
     elif flag_shower_level and flag_point_level:
         return [(fig1, axes1), (fig2, axes2), (fig3, axes3)]
-
-
-# ── Quick demo ────────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    rng = np.random.default_rng(42)
-    B = 1000
-    n_layers = 47
-
-    dataset = "/data/dust/user/mmozzani/HGCAL_dataset/h5s-photons-PC/HGCal_showers{}.h5"
-    f = h5py.File(dataset.format(99), "r")
-    events = np.array(f["showers"])[:B]
-    z = events[:, :, [0, 1, 3]] + rng.standard_normal((B, events.shape[1], 3)) * 0.3
-    incident_energy = np.array(f["gen_info"])[:B, 0]
-    num_points = (events[:, :, 3] > 0).sum(axis=1)
-    layer_index = events[:, :, 2]
-
-    plot_vae_tsne_conditioning(
-        z,
-        z,
-        incident_energy=incident_energy,
-        num_points=num_points,
-        layer_index=layer_index,
-        flag_shower_level=True,
-        flag_point_level=False,
-        perplexity=4,
-        energy_log_scale=True,
-        points_log_scale=True,
-        layer_log_scale=True,
-        save_prefix="gen_utils_plot/tsne_vae",
-    )
-
-    plt.show()

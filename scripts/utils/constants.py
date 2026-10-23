@@ -1,7 +1,15 @@
+import os
+
 import numpy as np
 
-dataset_path_photons = "./dataset/hdf5_HGx9new/all_interactions_pions_regular_ECAL+HCAL_10-90GeV_{}.slcio.root_with_time.hdf5"
-dataset_path_pions = "./dataset/hdf5_HGx9new/all_interactions_pions_regular_ECAL+HCAL_10-90GeV_{}.slcio.root_with_time.hdf5"
+dataset_path_photons = os.environ.get(
+    "CALOCHILL_DATASET",
+    "./dataset/hdf5_HGx9new/all_interactions_pions_regular_ECAL+HCAL_10-90GeV_{}.slcio.root_with_time.hdf5",
+)  # same default as configs/configs_data.yaml
+dataset_path_pions = os.environ.get(
+    "CALOCHILL_DATASET",
+    "./dataset/hdf5_HGx9new/all_interactions_pions_regular_ECAL+HCAL_10-90GeV_{}.slcio.root_with_time.hdf5",
+)  # same default as configs/configs_data.yaml
 
 cell_size_ecal = 5
 cell_size_hcal = 30

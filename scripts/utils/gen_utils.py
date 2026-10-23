@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.distributed as dist
-from models.CaloHadronic import CaloHadronic_Attention, CaloHadronic_FM, CompressorVAE
+from models.calochill import LMF, VAE, LatentEDM
 from tqdm import tqdm
 from utils.constants import (
     Xmax_photons,
@@ -55,11 +55,11 @@ def resolve_edm_dir(run):
 def load_configs(edm_dir, device, matmul_precision, dataset="pions"):
     """The LMF, data and VAE compressor configs of an LMF run, wired together the way
     the models expect them. (run from the repo root: vae_path is relative to logs/)"""
-    cfg = Config.from_yaml(edm_dir + "configs_LatentDiffusion.yaml")
+    cfg = Config.from_yaml(edm_dir + "configs_LMF.yaml")
     cfg.energy_calibration_factor = 1.0
     cfg_data = Config.from_yaml(edm_dir + "configs_data.yaml")
     cfg_compressor = Config.from_yaml(
-        "logs/" + os.path.dirname(cfg.model.vae_path) + "/configs_compressor.yaml"
+        "logs/" + os.path.dirname(cfg.model.vae_path) + "/configs_VAE.yaml"
     )
 
     cfg.device = cfg_compressor.device = cfg_compressor.vae.device = device
@@ -108,11 +108,11 @@ def _match_compiled(state_dict, model):
 
 def load_models(cfg, cfg_data, cfg_compressor, edm_dir, device):
     """The LMF (ckpt_latest.pt of edm_dir) and its VAE compressor, in eval mode."""
-    # 'edm' (CaloHadronic_Attention) unless the run's config says mean_flow.
+    # 'edm' (LatentEDM) unless the run's config says mean_flow.
     if getattr(cfg.model, "generative_model", "edm") == "mean_flow":
-        model = CaloHadronic_FM(cfg, "LatentDiff").to(device)
+        model = LMF(cfg, "LMF").to(device)
     else:
-        model = CaloHadronic_Attention(cfg, "LatentDiff").to(device)
+        model = LatentEDM(cfg, "LMF").to(device)
     checkpoint = torch.load(
         edm_dir + "ckpt_latest.pt",
         map_location=torch.device(device),
@@ -121,7 +121,7 @@ def load_models(cfg, cfg_data, cfg_compressor, edm_dir, device):
     model.load_state_dict(_match_compiled(checkpoint["others"]["model"], model))
     model.eval()
 
-    model_vae = CompressorVAE(cfg_data, cfg_compressor.vae).to(device)
+    model_vae = VAE(cfg_data, cfg_compressor.vae).to(device)
     new_state_dict, _, _ = load_checkpoint(
         cfg_data, cfg_compressor, model_vae, cfg.model.vae_path
     )
@@ -300,7 +300,7 @@ def x_y_shift(showers, Xmin, Xmax, Ymin, Ymax):
     return showers
 
 
-def gen_showers_batch_CaloHadronicVAELatent(
+def gen_showers_batch(
     model,
     vae,
     pointcount_model,
@@ -318,6 +318,7 @@ def gen_showers_batch_CaloHadronicVAELatent(
     clock_dict=None,
     with_time=None,
     real_file=None,
+    with_reco=True,  # False: no Geant4 showers needed (no reco, cond_E and LayerFM required)
 ):
     if with_time is None:
         # the VAE checkpoint decides the feature layout
@@ -341,7 +342,7 @@ def gen_showers_batch_CaloHadronicVAELatent(
     if clock_dict is None:
         clock_dict_ = None
 
-    if real_showers is None:
+    if real_showers is None and with_reco:
         # real_file: take its first `num` showers in [e_min, e_max] in order, each
         # once; otherwise draw `num` from test file 99 with replacement
         f = h5py.File(real_file or config_data.dataset_path.format(99), "r")
@@ -362,21 +363,26 @@ def gen_showers_batch_CaloHadronicVAELatent(
         cond_E_real = torch.Tensor(e).to(config.device)
         real_showers[:, :, 3] *= 1000
 
-    if not enable_pointcount or (cond_E is None):
+    if not with_reco:
+        if cond_E is None or not enable_pointcount:
+            raise ValueError("reco=False needs cond_E and the LayerFM point counts")
+        cond_E_r = None
+    elif not enable_pointcount or (cond_E is None):
         cond_E = cond_E_real.unsqueeze(1) / 100 * 2 - 1
         cond_E_r = cond_E.clone()
     else:
         cond_E_r = cond_E_real.unsqueeze(1) / 100 * 2 - 1
 
-    real_showers[real_showers[:, :, 3] == 0] = 0
-    samples_points_r = _calculate_points_per_layer(real_showers, axis=2).astype(int)
-    samples_mint_r = _calculate_min_time_per_layer(
-        real_showers,
-        layer_axis=2,
-        bins=78,
-        time_axis=4,
-    )
-    samples_mint_r = samples_mint_r / maximum_time
+    if with_reco:
+        real_showers[real_showers[:, :, 3] == 0] = 0
+        samples_points_r = _calculate_points_per_layer(real_showers, axis=2).astype(int)
+        samples_mint_r = _calculate_min_time_per_layer(
+            real_showers,
+            layer_axis=2,
+            bins=78,
+            time_axis=4,
+        )
+        samples_mint_r = samples_mint_r / maximum_time
 
     if clock_dict is not None:
         clock_dict_sf, clock_dict_ = clock_dict
@@ -460,7 +466,7 @@ def gen_showers_batch_CaloHadronicVAELatent(
     fake_showers_list, reco_showers_list = [], []
     z_encoded_list, z_sampled_list = [], []
     max_shower_length = mmaxx + 1
-    max_shower_length_r = samples_points_r.sum(axis=1).max()
+    max_shower_length_r = samples_points_r.sum(axis=1).max() if with_reco else 0
 
     for evt_id in tqdm(range(0, num, bs), mininterval=10, disable=False):
         bs = min(bs, num - evt_id)
@@ -517,17 +523,18 @@ def gen_showers_batch_CaloHadronicVAELatent(
 
         # reconstruction: same energy calibration as the generated path, since it goes
         # through the same VAE decompressor
-        reco, cond_layer_r, new_padding_mask_r, z_reco = get_reco_shower(
-            vae,
-            real_showers[evt_id : evt_id + bs].copy(),
-            energy=e[evt_id : evt_id + bs] * calib(e[evt_id : evt_id + bs]),
-            config_data=config_data,
-            config=config,
-            max_points=max_points,
-            XZmin=Xmin,
-            XZmax=Xmax,
-            scale_energy=False,
-        )
+        if with_reco:
+            reco, cond_layer_r, new_padding_mask_r, z_reco = get_reco_shower(
+                vae,
+                real_showers[evt_id : evt_id + bs].copy(),
+                energy=e[evt_id : evt_id + bs] * calib(e[evt_id : evt_id + bs]),
+                config_data=config_data,
+                config=config,
+                max_points=max_points,
+                XZmin=Xmin,
+                XZmax=Xmax,
+                scale_energy=False,
+            )
         latent, fs = get_shower(
             model,
             vae,
@@ -546,77 +553,44 @@ def gen_showers_batch_CaloHadronicVAELatent(
             clock_dict=clock_dict_,
         )
 
-        if config_data.log_energy:
-            fs[:, :, 2] *= config_data.log_var
-            fs[:, :, 2] += config_data.log_mean
-            fs[:, :, 2] = torch.exp(fs[:, :, 2])
-            reco[:, :, 2] *= config_data.log_var
-            reco[:, :, 2] += config_data.log_mean
-            reco[:, :, 2] = torch.exp(reco[:, :, 2])
-        if with_time:
-            fs[:, :, 3] *= config_data.log_var_time
-            fs[:, :, 3] += config_data.log_mean_time
-            fs[:, :, 3] = torch.exp(fs[:, :, 3])
-            reco[:, :, 3] *= config_data.log_var_time
-            reco[:, :, 3] += config_data.log_mean_time
-            reco[:, :, 3] = torch.exp(reco[:, :, 3])
-        fs = fs.cpu().numpy()
-        reco = reco.cpu().numpy()
-        latent = latent.cpu().numpy()
-        z_reco = z_reco.cpu().numpy()
-
-        fs = x_y_shift(fs, Xmin, Xmax, Zmin, Zmax)
-        reco = x_y_shift(reco, Xmin, Xmax, Zmin, Zmax)
-
-        for i in range(fs.shape[-1]):
-            fs[:, :, i][new_padding_mask] = 0
-            reco[:, :, i][new_padding_mask_r] = 0
-
-        fs = np.concatenate(
-            (fs[:, :, :2], cond_layer.cpu().numpy(), fs[:, :, 2:]),
-            axis=-1,
-        )
-
-        reco = np.concatenate(
-            (reco[:, :, :2], cond_layer_r.cpu().numpy(), reco[:, :, 2:]),
-            axis=-1,
-        )
-
         f = 5 if with_time else 4
-        length = max_shower_length - fs.shape[1]
-        fs = np.concatenate((fs, np.zeros((bs, length, f))), axis=1)  # B, max_points, 4
-        latent = np.concatenate(
-            (
-                latent,
-                np.zeros(
-                    (bs, config_compressor.vae.p_dim - latent.shape[1], latent.shape[2])
-                ),
-            ),
-            axis=1,
-        )
-        length = max_shower_length_r - reco.shape[1]
-        reco = np.concatenate(
-            (reco, np.zeros((bs, length, f))), axis=1
-        )  # B, max_points, 4
-        z_reco = np.concatenate(
-            (
-                z_reco,
-                np.zeros(
-                    (bs, config_compressor.vae.p_dim - z_reco.shape[1], z_reco.shape[2])
-                ),
-            ),
-            axis=1,
-        )
 
-        fake_showers_list.append(fs)
-        reco_showers_list.append(reco)
-        z_encoded_list.append(z_reco)
-        z_sampled_list.append(latent)
+        def to_output(x, mask, layer, n_max):
+            # normalised features -> physical units, padded to n_max points;
+            # columns [x, z, layer, energy, (time)]
+            if config_data.log_energy:
+                x[:, :, 2] *= config_data.log_var
+                x[:, :, 2] += config_data.log_mean
+                x[:, :, 2] = torch.exp(x[:, :, 2])
+            if with_time:
+                x[:, :, 3] *= config_data.log_var_time
+                x[:, :, 3] += config_data.log_mean_time
+                x[:, :, 3] = torch.exp(x[:, :, 3])
+            x = x_y_shift(x.cpu().numpy(), Xmin, Xmax, Zmin, Zmax)
+            for i in range(x.shape[-1]):
+                x[:, :, i][mask] = 0
+            x = np.concatenate((x[:, :, :2], layer.cpu().numpy(), x[:, :, 2:]), axis=-1)
+            return np.concatenate((x, np.zeros((bs, n_max - x.shape[1], f))), axis=1)
+
+        def pad_latent(z):
+            z = z.cpu().numpy()
+            pad = np.zeros((bs, config_compressor.vae.p_dim - z.shape[1], z.shape[2]))
+            return np.concatenate((z, pad), axis=1)
+
+        fake_showers_list.append(
+            to_output(fs, new_padding_mask, cond_layer, max_shower_length)
+        )
+        z_sampled_list.append(pad_latent(latent))
+        if with_reco:
+            reco_showers_list.append(
+                to_output(reco, new_padding_mask_r, cond_layer_r, max_shower_length_r)
+            )
+            z_encoded_list.append(pad_latent(z_reco))
 
     fake_showers = np.vstack(fake_showers_list)
-    reco_showers = np.vstack(reco_showers_list)
-    z_encoded = np.vstack(z_encoded_list)
     z_sampled = np.vstack(z_sampled_list)
+    reco_showers = np.vstack(reco_showers_list) if with_reco else None
+    z_encoded = np.vstack(z_encoded_list) if with_reco else None
 
     if with_time:
         # time calibration
@@ -631,17 +605,19 @@ def gen_showers_batch_CaloHadronicVAELatent(
             too_small = fake_showers[:, :, 4] < min_t
             fake_showers[:, :, 4][layer_mask & too_small] = min_t
 
-            layer_mask = (reco_showers[:, :, 2] == j) & (reco_showers[:, :, 3] > 0)
-            too_small = reco_showers[:, :, 4] < min_t
-            reco_showers[:, :, 4][layer_mask & too_small] = min_t
+            if with_reco:
+                layer_mask = (reco_showers[:, :, 2] == j) & (reco_showers[:, :, 3] > 0)
+                too_small = reco_showers[:, :, 4] < min_t
+                reco_showers[:, :, 4][layer_mask & too_small] = min_t
 
         too_big = fake_showers[:, :, 4] > 200
         fake_showers[:, :, 4][too_big] = 200
-        too_big = reco_showers[:, :, 4] > 200
-        reco_showers[:, :, 4][too_big] = 200
+        if with_reco:
+            too_big = reco_showers[:, :, 4] > 200
+            reco_showers[:, :, 4][too_big] = 200
+            reco_showers[:, :, 4][reco_showers[:, :, 3] <= 0] = 0
 
         fake_showers[:, :, 4][fake_showers[:, :, 3] <= 0] = 0
-        reco_showers[:, :, 4][reco_showers[:, :, 3] <= 0] = 0
 
     if clock_dict is not None:
         if config.only_hcal:
@@ -657,15 +633,16 @@ def gen_showers_batch_CaloHadronicVAELatent(
             clock_dict,
         )
     else:
-        print("Real showers shape: ", real_showers.shape)
-        print("Fake showers shape: ", fake_showers.shape)
-        print("Reconstructed showers shape: ", reco_showers.shape)
+        print("Generated showers shape: ", fake_showers.shape)
+        if with_reco:
+            print("Real showers shape: ", real_showers.shape)
+            print("Reconstructed showers shape: ", reco_showers.shape)
         return (
             fake_showers,
             reco_showers,
             samples,
             cond_E.detach().cpu().numpy().astype("float32"),
-            cond_E_r.detach().cpu().numpy().astype("float32"),
+            cond_E_r.detach().cpu().numpy().astype("float32") if with_reco else None,
             real_showers,
             cond_E_r,
             z_encoded,

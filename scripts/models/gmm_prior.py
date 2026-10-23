@@ -3,7 +3,7 @@ import torch.nn as nn
 
 
 class ConditionalGMMPrior(nn.Module):
-    """Condition-dependent Gaussian-Mixture noise prior for the LatentDiff EDM stage.
+    """Condition-dependent Gaussian-Mixture noise prior for the LMF EDM stage.
 
     Generalizes the isotropic eps ~ N(0, I) noise used for forward corruption /
     x_T initialization to eps = mu_k(c) + N(0, I), k ~ Categorical(pi(c)) — an

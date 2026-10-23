@@ -1,4 +1,4 @@
-"""Compare the latent sizes (ds) of the mean_flow LatentDiff runs on the occ-scale
+"""Compare the latent sizes (ds) of the mean_flow LMF runs on the occ-scale
 features, all against the same Geant4 reference.
 
 Reads only what occ-scale.py has already cached in files/projected_array/<run>/<tag>/

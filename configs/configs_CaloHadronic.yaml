@@ -13,7 +13,7 @@ common:
   include_time: true
 
 model:
-  model_name: 'CaloHadronicVAE' # hits sorted by layer + per-hit layer conditioning (dataset branch)
+  model_name: 'CaloCHILL' # hits sorted by layer + per-hit layer conditioning (dataset branch)
   # resume: "<run folder in log_dir>/ckpt_0.000000_<it>.pt"; the run folder needs a copy of this file
   model_path: null
 

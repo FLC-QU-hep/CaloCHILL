@@ -1,5 +1,5 @@
 """Pipeline breakdown vs shower size, from the CSVs written by
-timing_CaloHadronicVAELatent.py --stages (or by the former pipeline_breakdown_sweep.py).
+timing.py --stages (or by the former pipeline_breakdown_sweep.py).
 
 usage: plot_pipeline_breakdown.py <full.csv> <ref0.csv> <out.pdf> [--latent-label L] [--heading H]
 
@@ -57,14 +57,14 @@ args = parser.parse_args()
 MS = 1e3  # seconds -> milliseconds
 
 
-# timing_CaloHadronicVAELatent.py --stages columns -> the names of the former sweep's CSVs
+# timing.py --stages columns -> the names of the former sweep's CSVs
 ALIASES = {
     "time_per_sample_s": "total_s",
     "time_per_sample_std_s": "total_std_s",
     "pointcount_time_per_sample_s": "pointcount_s",
     "pointcount_time_per_sample_std_s": "pointcount_std_s",
-    "latent_time_per_sample_s": "latentdiff_s",
-    "latent_time_per_sample_std_s": "latentdiff_std_s",
+    "latent_time_per_sample_s": "lmf_s",
+    "latent_time_per_sample_std_s": "lmf_std_s",
     "decode_time_per_sample_s": "vaedecode_s",
     "decode_time_per_sample_std_s": "vaedecode_std_s",
 }
@@ -162,7 +162,7 @@ series = (
     ),
     (
         x,
-        col(full, "latentdiff_s"),
+        col(full, "lmf_s"),
         dict(color=AQUA, marker="D", label=args.latent_label),
     ),
     (
@@ -178,7 +178,7 @@ if args.extra_latent:
         + (
             (
                 [r["mean_n_hits"] for r in extra],
-                col(extra, "latentdiff_s"),
+                col(extra, "lmf_s"),
                 dict(
                     color=AQUA, marker="P", linestyle="--", label=args.extra_latent[1]
                 ),

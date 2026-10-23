@@ -7,8 +7,8 @@ straight from the Geant4 one (no LayerFM), so the two are as close as the model 
     # 1. Geant4 showers at 50 +- 0.5 GeV from the held-out file 99 -> small hdf5, sorted by number of points
     python scripts/evaluation/event_display.py select --energy 50 --out files/event_display/g4_50GeV.hdf5
     # 2. generate their counterparts (GPU job), e.g.
-    python scripts/evaluation/eval_checkpoints_CaloHadronicVAELatent.py --inc_en 50 --fixed_energy --num <N> --bs 32 \
-        --num_steps 1 --latentdiff_dir <run>/ --real_file files/event_display/g4_50GeV.hdf5 --g4_conditioning \
+    python scripts/evaluation/generate.py --inc_en 50 --fixed_energy --num <N> --bs 32 \
+        --num_steps 1 --lmf_dir <run>/ --real_file files/event_display/g4_50GeV.hdf5 --g4_conditioning \
         --energy_calibration_factor a b c --energy_calibration_powers 0 1 2
     # 3. candidates overview (best-looking first) and the final two-panel figure for the chosen index
     python scripts/evaluation/event_display.py plot --g4 files/event_display/g4_50GeV.hdf5 --gen <gen hdf5> \

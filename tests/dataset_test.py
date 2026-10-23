@@ -36,8 +36,8 @@ class DatasetTest(SyntheticData, unittest.TestCase):
         self.assertTrue((valid[:, :2].abs() <= 1).all())  # x, z in [-1, 1]
 
     def test_compressor_batches(self):
-        cfg_data, cfg_model = load_configs("configs_compressor.yaml", self.dataset_path)
-        dset = make_dataset(cfg_data, cfg_model, "Compressor")
+        cfg_data, cfg_model = load_configs("configs_VAE.yaml", self.dataset_path)
+        dset = make_dataset(cfg_data, cfg_model, "VAE")
         self.assertEqual(len(dset), SHOWERS_PER_FILE // 4)
         with h5py.File(self.dataset_path.format(1)) as f:
             n_points = np.sort(f["n_points"][:])
@@ -61,9 +61,9 @@ class DatasetTest(SyntheticData, unittest.TestCase):
         self.assertTrue(((e >= 1e-3 * 0.99) & (e <= 50 * 1.01)).all())
 
     def test_val_test_split(self):
-        cfg_data, cfg_model = load_configs("configs_compressor.yaml", self.dataset_path)
+        cfg_data, cfg_model = load_configs("configs_VAE.yaml", self.dataset_path)
         for phase in ("val", "test"):
-            dset = make_dataset(cfg_data, cfg_model, "Compressor", phase=phase)
+            dset = make_dataset(cfg_data, cfg_model, "VAE", phase=phase)
             self.assertEqual(len(dset.data_files), 1)
             self.check_batch(dset[0], n_feats=4, n_norm=cfg_data.max_points)
 
@@ -76,9 +76,9 @@ class DatasetTest(SyntheticData, unittest.TestCase):
         self.check_batch(dset[0], n_feats=4, n_norm=6000)
 
     def test_without_time(self):
-        cfg_data, cfg_model = load_configs("configs_compressor.yaml", self.dataset_path)
+        cfg_data, cfg_model = load_configs("configs_VAE.yaml", self.dataset_path)
         cfg_model.common.include_time = False
-        item = make_dataset(cfg_data, cfg_model, "Compressor")[0]
+        item = make_dataset(cfg_data, cfg_model, "VAE")[0]
         self.check_batch(item, n_feats=3, n_norm=cfg_data.max_points)
         self.assertTrue((item["mint_per_layer"] == 0).all())
 

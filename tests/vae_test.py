@@ -14,14 +14,12 @@ from helpers import (
 
 class VAETest(SyntheticData, unittest.TestCase):
     def test_loss_backward_and_reco(self):
-        cfg_data, cfg_model = load_configs("configs_compressor.yaml", self.dataset_path)
+        cfg_data, cfg_model = load_configs("configs_VAE.yaml", self.dataset_path)
         vae = build_vae(cfg_data, cfg_model)
-        batch = first_batch(
-            make_loader(make_dataset(cfg_data, cfg_model, "Compressor"))
-        )
+        batch = first_batch(make_loader(make_dataset(cfg_data, cfg_model, "VAE")))
         events = batch["events"]
 
-        # the get_loss call of Train.forward (net Compressor), beta at iteration 1
+        # the get_loss call of Train.forward (net VAE), beta at iteration 1
         loss_dict = vae.get_loss(
             events.clone(),
             ctx=batch["cond_feats"],

@@ -1,12 +1,12 @@
 """
-Full generation-time benchmark for the CaloHadronicVAE (PointCountFM point-count +
-VAE + LatentDiff) pipeline, matching the scope of AllShowers_private's
+Full generation-time benchmark for the CaloCHILL (PointCountFM point-count +
+VAE + LMF) pipeline, matching the scope of AllShowers_private's
 allshowers/unified_sampling.py `time_generation()` benchmark (used for the
 "AllShowers" rows of the CPU/GPU timing table): each timed call samples the
 per-layer point counts / min-times from the distilled one-step PointCountFM
 student *and* then runs the diffusion sampling + VAE decode, using synthetic, uniform
 conditioning batches (fixed incident energy per batch) rather than real showers.
-This makes the "CaloHadronicVAE" and "AllShowers" rows apples-to-apples: both
+This makes the "CaloCHILL" and "AllShowers" rows apples-to-apples: both
 include their respective point-count submodel in the timed region.
 
 Times cover only the two models' inference; they do not include host<->device
@@ -18,8 +18,8 @@ first --warmup batches at each (energy, NFE, batch size) point are discarded bef
 timing, since JIT compilation / memory allocation make them longer and more erratic.
 
 Example:
-    python scripts/evaluation/timing_CaloHadronicVAELatent.py --device cuda --steps 1 50 --bs 1 16
-    python scripts/evaluation/timing_CaloHadronicVAELatent.py --device cpu --steps 1 50 --bs 1 16
+    python scripts/evaluation/timing.py --device cuda --steps 1 50 --bs 1 16
+    python scripts/evaluation/timing.py --device cpu --steps 1 50 --bs 1 16
 
 --toy-points drops the point-count model out of the timed region
 altogether: instead of drawing hit counts from it, every shower in the batch is given
@@ -74,7 +74,7 @@ PCFM_CKPT = os.environ.get(
 
 def load_pointcount_model(device):
     """The per-layer point-count / min-time model: the distilled one-step
-    PointCountFM student (NFE=1), i.e. the CaloHadronicVAE counterpart to
+    PointCountFM student (NFE=1), i.e. the CaloCHILL counterpart to
     AllShowers' PointCountFM.
 
     Loading re-fits the input transforms on the full training set, so this costs
@@ -96,7 +96,7 @@ def sample_point_counts(pointcount_model, cond_E, max_retries=5):
 
     The student takes raw GeV and returns physical, already inverse-transformed
     values, so min-time is divided by `maximum_time` to match the normalization the
-    VAE / LatentDiff conditioning expects (the same thing gen_utils.py does on its
+    VAE / LMF conditioning expects (the same thing gen_utils.py does on its
     PointCountFM2 path)."""
     e_gev = (cond_E + 1) / 2 * 100
 
@@ -341,7 +341,7 @@ def timed_call(
 
     `prebuilt` is a (hits_per_layer, mint_per_layer) pair prepared outside the timed
     region (--toy-points). The point-count model is then not called at all and the
-    first returned number is ~0: only the LatentDiff sampling + VAE decode is timed."""
+    first returned number is ~0: only the LMF sampling + VAE decode is timed."""
     if device == "cuda":
         torch.cuda.synchronize()
     t0 = time.perf_counter()
@@ -383,7 +383,7 @@ def timed_call(
 
 
 # Denoiser evaluations each sampler spends per solver step, measured by counting
-# calls into Denoiser.forward (scripts/models/CaloHadronic.py sampler dispatch):
+# calls into Denoiser.forward (scripts/models/calochill.py sampler dispatch):
 #   euler / dpmpp_2m  1 eval per step          -> NFE = num_steps
 #   midpoint          2 evals per step         -> NFE = 2 * num_steps
 #   heun              2 per step, 1 on the last -> NFE = 2 * num_steps - 1
@@ -465,7 +465,7 @@ def main():
     parser.add_argument(
         "--edm-dir",
         default=EDM_RUN_DEFAULT,
-        help="LatentDiff run folder holding the configs and ckpt_latest.pt: a name "
+        help="LMF run folder holding the configs and ckpt_latest.pt: a name "
         "under logs/, or an absolute path",
     )
     parser.add_argument(
@@ -547,7 +547,7 @@ def main():
         "'highest' is true fp32, 'high' uses TF32 tensor cores, 'medium' uses bf16 "
         "inputs and is the fastest. The default matches what AllShowers' "
         "unified_sampling.py sets for the reference timings, and what "
-        "eval_checkpoints_CaloHadronicVAELatent.py generates with, so the comparison "
+        "generate.py generates with, so the comparison "
         "stays apples-to-apples; use 'highest' to reproduce fp32 timings",
     )
     parser.add_argument(
@@ -595,7 +595,7 @@ def main():
     def set_nfe(nfe):
         """Point the sampler at `nfe` network evaluations; returns the step count."""
         if is_mean_flow:
-            # CaloHadronic_FM.sample reads mean_flow.num_steps, not cfg.num_steps /
+            # LMF.sample reads mean_flow.num_steps, not cfg.num_steps /
             # cfg.sampler: one network evaluation per step, so NFE = num_steps
             cfg.mean_flow.num_steps = nfe
             cfg.num_steps = nfe
@@ -739,7 +739,7 @@ def main():
                 pc_err, tot_std = err[0], err[3]
                 gen_mean = lat_mean + dec_mean
                 if toy_n:
-                    # only LatentDiff + decode were timed; put the point-count stage's
+                    # only LMF + decode were timed; put the point-count stage's
                     # measured constant back so the y axis is still the full pipeline
                     pc_mean, pc_err = toy_pc_cost[bs]
                     gen_mean, tot_mean = tot_mean, tot_mean + pc_mean
@@ -755,7 +755,7 @@ def main():
                 rows.append(
                     {
                         "hardware": hardware,
-                        "model": "CaloHadronicVAE",
+                        "model": "CaloCHILL",
                         "energy_gev": energy,
                         "toy_points": toy_n,
                         "nfe": nfe,
@@ -813,7 +813,7 @@ def main():
         summary_rows.append(
             {
                 "hardware": hardware,
-                "model": "CaloHadronicVAE",
+                "model": "CaloCHILL",
                 "nfe": nfe_val,
                 "batch_size": bs,
                 "avg_time_per_sample_s": avg,
@@ -828,7 +828,7 @@ def main():
 
     hardware_tag = f"GPU_{gpu_name.replace(' ', '')}" if gpu_name else "CPU"
     tag = f"{hardware_tag}_{int(time.time())}"
-    out = args.out or (path_to_repo + f"files/timing/CaloHadronicVAE_{tag}.csv")
+    out = args.out or (path_to_repo + f"files/timing/CaloCHILL_{tag}.csv")
     summary_out = os.path.splitext(out)[0] + "_summary.csv"
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w", newline="") as f:

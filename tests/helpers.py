@@ -12,7 +12,7 @@ import torch.nn.attention.flex_attention as flex
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "scripts"))
 
-from models.CaloHadronic import CompressorVAE  # noqa: E402
+from models.calochill import VAE  # noqa: E402
 from torch.utils.data import DataLoader  # noqa: E402
 from utils.dataset import PionClouds  # noqa: E402
 from utils.misc import Config  # noqa: E402
@@ -92,10 +92,10 @@ def load_configs(model_config, dataset_path):
 
 
 def build_vae(cfg_data, cfg_vae):
-    """CompressorVAE as Train.get_model() builds it (cfg_vae = compressor config)."""
+    """VAE as Train.get_model() builds it (cfg_vae = compressor config)."""
     cfg_vae.vae.calorimeter_layers = cfg_data.calorimeter_layers
     cfg_vae.vae.p_dim = cfg_vae.vae.p_dim_pions
-    return CompressorVAE(cfg_data, cfg_vae.vae)
+    return VAE(cfg_data, cfg_vae.vae)
 
 
 def make_dataset(cfg_data, cfg_model, net, phase="train", n_files=1):

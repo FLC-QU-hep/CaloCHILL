@@ -11,6 +11,7 @@ import numpy as np
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from utils import gen_utils
+from utils.misc import default_rendezvous
 
 torch.set_float32_matmul_precision(
     "high"
@@ -18,6 +19,7 @@ torch.set_float32_matmul_precision(
 
 
 def setup_ddp(rank, world_size):
+    default_rendezvous()
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
     torch.cuda.set_device(rank)
 
@@ -101,7 +103,7 @@ parser.add_argument(
     nargs="+",
     default=[1.0],
     help="Rescales the incident energy condition fed to the diffusion transformer "
-    "at inference (see configs_LatentDiffusion.yaml); 1.0 = no calibration",
+    "at inference (see configs_LMF.yaml); 1.0 = no calibration",
 )
 parser.add_argument(
     "--energy_calibration_powers",
@@ -116,16 +118,16 @@ parser.add_argument(
     action="store_true",
     help="Cache energy_calibration_factor per incident-energy range in a txt file "
     "(files/generated_showers/<gen_folder>/calib_<inc_en>GeV.txt, gen_folder being "
-    "'<latentdiff_dir>_<num_steps>'). If the file already exists, its factor is loaded "
+    "'<lmf_dir>_<num_steps>'). If the file already exists, its factor is loaded "
     "and used instead of --energy_calibration_factor; otherwise --energy_calibration_factor "
     "is used and saved there for future runs.",
 )
 parser.add_argument(
-    "--latentdiff_dir",
+    "--lmf_dir",
     type=str,
     default="lmf_large_ds256/",  # large LMF, d_s = 256 (paper)
-    help="Name of the LatentDiff checkpoint directory under logs/ "
-    "(must end with '/') to load the EDM/LatentDiff model from.",
+    help="Name of the LMF checkpoint directory under logs/ "
+    "(must end with '/') to load the EDM/LMF model from.",
 )
 parser.add_argument(
     "--save_latents",
@@ -148,11 +150,21 @@ parser.add_argument(
     "from the Geant4 showers (--real_file), as AllShowers does for its event displays.",
 )
 parser.add_argument(
+    "--no_reco",
+    action="store_true",
+    help="Generate without the Geant4 dataset: no reconstruction, incident energies "
+    "exactly --inc_en with --fixed_energy, otherwise uniform in the energy range.",
+)
+parser.add_argument(
     "--no_save",
     action="store_true",
     help="Do not write the generated showers hdf5 (e.g. for a plots-only run).",
 )
 args = parser.parse_args()
+if args.no_reco and (args.g4_conditioning or args.save_latents or args.real_file):
+    parser.error(
+        "--no_reco cannot be combined with --g4_conditioning, --save_latents or --real_file"
+    )
 
 inc_en = args.inc_en
 num = args.num
@@ -180,7 +192,7 @@ _with_sf = not args.g4_conditioning  # False: conditioning straight from Geant4
 path_to_repo = "./"
 
 caloclouds = "edm"  # 'ddpm, 'edm', 'cm'
-edm_dir = gen_utils.resolve_edm_dir(args.latentdiff_dir)
+edm_dir = gen_utils.resolve_edm_dir(args.lmf_dir)
 
 # TF32 matmuls (precision "high"), not the timing script's bf16 "medium"
 cfg, cfg_data, cfg_compressor = gen_utils.load_configs(edm_dir, "cuda", "high", dataset)
@@ -221,7 +233,7 @@ float_type = "f4"  # float32: the network and the input data are float32 anyway
 _gz = dict(compression="gzip", compression_opts=4)
 cfg.num_steps = args.num_steps
 if getattr(cfg.model, "generative_model", "edm") == "mean_flow":
-    # CaloHadronic_FM.sample reads mean_flow.num_steps, not cfg.num_steps / cfg.sampler
+    # LMF.sample reads mean_flow.num_steps, not cfg.num_steps / cfg.sampler
     # (one network evaluation per step, so NFE = num_steps; 1 = one-step sampling).
     cfg.mean_flow.num_steps = args.num_steps
 cfg.sampler = "midpoint"
@@ -250,7 +262,7 @@ model, model_vae, distribution, cfg = main(cfg, dataset)
     _,
     z_encoded,
     z_sampled,
-) = gen_utils.gen_showers_batch_CaloHadronicVAELatent(
+) = gen_utils.gen_showers_batch(
     model,
     model_vae,
     distribution,
@@ -263,7 +275,14 @@ model, model_vae, distribution, cfg = main(cfg, dataset)
     dataset=dataset,
     bs=bs,
     enable_pointcount=_with_sf,
-    cond_E=torch.full((num, 1), inc_en / 100 * 2 - 1) if args.fixed_energy else None,
+    cond_E=torch.full((num, 1), inc_en / 100 * 2 - 1)
+    if args.fixed_energy
+    else (
+        torch.empty(num, 1).uniform_(*energy_range) / 100 * 2 - 1
+        if args.no_reco
+        else None
+    ),
+    with_reco=not args.no_reco,
     # the VAE checkpoint decides the feature layout, not this script
     with_time=cfg_compressor.vae.include_time,
     real_file=args.real_file,
@@ -273,8 +292,8 @@ model, model_vae, distribution, cfg = main(cfg, dataset)
 # runs (relied on by occ-scale.py and compute_energy_calibration.py).
 cond_E = torch.tensor(cond_E, dtype=torch.float32)
 cond_E = (cond_E + 1) / 2 * 100
-cond_E_r = torch.tensor(cond_E_r, dtype=torch.float32)
-cond_E_r = (cond_E_r + 1) / 2 * 100
+if cond_E_r is not None:
+    cond_E_r = (torch.tensor(cond_E_r, dtype=torch.float32) + 1) / 2 * 100
 
 if args.save_latents:
     os.makedirs(os.path.dirname(os.path.abspath(args.save_latents)), exist_ok=True)

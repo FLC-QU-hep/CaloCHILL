@@ -12,7 +12,7 @@ common:
   include_time: true # false for the no-time VAE
 
 model:
-  model_name: 'CaloHadronicVAE' # choices: ['CaloHadronic', 'CaloHadronicVAE']
+  model_name: 'CaloCHILL' # choices: ['CaloHadronic', 'CaloCHILL']
   model_path: null
 
 optimizer:
@@ -41,7 +41,7 @@ vae:
   layer_cond: true # use y conditioning (layer conditioning)
   cond_feats: 2 # energy + total number of points
   ecal_feats: 0
-  layer_dim: 8 # only for CaloHadronicVAE !=0
+  layer_dim: 8 # only for CaloCHILL !=0
   pad_value_y: 100
   include_time: ${common.include_time}
 

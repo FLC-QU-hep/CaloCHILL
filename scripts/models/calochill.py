@@ -55,7 +55,7 @@ def _n_points_and_top_points_per_layer(layer_index, mask):
     return kwargs
 
 
-class CompressorVAE(nn.Module):
+class VAE(nn.Module):
     def __init__(self, cfg_data, args_model):
         super().__init__()
         self.cfg = cfg_data
@@ -692,8 +692,8 @@ def _lag1_autocorr(a, valid):
 
 class LatentTargetMixin:
     """What the latent diffusion is trained on: the VAE posterior *sample* or its
-    *mean*. Shared by the EDM (`CaloHadronic_Attention`) and MeanFlow
-    (`CaloHadronic_FM`) models, which differ only in the generative objective.
+    *mean*. Shared by the EDM (`LatentEDM`) and MeanFlow
+    (`LMF`) models, which differ only in the generative objective.
 
     'sample' is the posterior draw z = mu + sigma * eps. At kl_weight 1e-2 that draw
     is 92-96% eps (sigma ~0.97 against std(mu) ~0.2) and a fresh eps is drawn at every
@@ -730,7 +730,7 @@ class LatentTargetMixin:
             raise NotImplementedError(
                 f"latent.target must be 'sample' or 'mu', got {self.latent_target!r}"
             )
-        if self.latent_target == "mu" and self.net != "LatentDiff":
+        if self.latent_target == "mu" and self.net != "LMF":
             raise NotImplementedError(
                 "latent.target 'mu' reads the VAE posterior mean, so it only applies "
                 f"to the latent diffusion; net is {self.net!r}"
@@ -860,7 +860,7 @@ class LatentTargetMixin:
                 )
 
 
-class CaloHadronic_Attention(LatentTargetMixin, nn.Module):
+class LatentEDM(LatentTargetMixin, nn.Module):
     def __init__(self, args, net, distillation=False):
         super().__init__()
         self.args = args
@@ -868,7 +868,7 @@ class CaloHadronic_Attention(LatentTargetMixin, nn.Module):
         self.net = net
         # What the diffusion is trained on (latent.target); see LatentTargetMixin.
         self._init_latent_target(args)
-        # Token-order diagnostics, the EDM counterpart of CaloHadronic_FM's mf/*
+        # Token-order diagnostics, the EDM counterpart of LMF's mf/*
         # block. training.py logs whatever lands in `mf_metrics`, keyed by name, so
         # nothing there needs to know which model produced them.
         self.mf_metric_iter = int(getattr(args, "log_iter", 2000))
@@ -955,7 +955,7 @@ class CaloHadronic_Attention(LatentTargetMixin, nn.Module):
         z = cond_feats
 
         self.block_mask = None
-        if self.net == "LatentDiff":
+        if self.net == "LMF":
             self.__calculate_block_mask(padding_mask, **kwargs)
 
         loss_diffusion = self.diffusion.loss(
@@ -963,8 +963,8 @@ class CaloHadronic_Attention(LatentTargetMixin, nn.Module):
             noise,
             sigma,
             context=z,
-            block_mask=self.block_mask if self.net == "LatentDiff" else None,
-            effective_p_dim=self.effective_p_dim if self.net == "LatentDiff" else None,
+            block_mask=self.block_mask if self.net == "LMF" else None,
+            effective_p_dim=self.effective_p_dim if self.net == "LMF" else None,
             y=y,
             mint_per_layer=mint_per_layer,
             padding=padding_mask,  # so the layer-occupancy profile can skip pad hits
@@ -973,7 +973,7 @@ class CaloHadronic_Attention(LatentTargetMixin, nn.Module):
         if self.gmm_prior is not None:
             loss = loss + self.args.gmm_prior.nll_weight * self.gmm_prior.nll(x, z)
         if (
-            self.net == "LatentDiff"
+            self.net == "LMF"
             and self.mf_metric_iter > 0
             and (it % self.mf_metric_iter == 0 or it == 10)
         ):
@@ -1137,7 +1137,7 @@ class CaloHadronic_Attention(LatentTargetMixin, nn.Module):
             eps = torch.randn(
                 [z.size(0), num_points, config.transformer.input_feats], device=z.device
             )
-        if self.net == "LatentDiff":
+        if self.net == "LMF":
             # EDM assumes sigma_max >> sigma_data; here sigma_max is only ~2x the latent
             # std, so start from the forward marginal std
             # sqrt(sigma_max^2 + latent_std^2), otherwise showers come out
@@ -1147,15 +1147,13 @@ class CaloHadronic_Attention(LatentTargetMixin, nn.Module):
             x_T = eps * (config.sigma_max**2 + latent_std**2) ** 0.5
         else:
             x_T = eps * config.sigma_max
-        if self.net == "LatentDiff":
+        if self.net == "LMF":
             kwargs = _n_points_and_top_points_per_layer(y, padding_mask)
             self.__calculate_block_mask(padding_mask, **kwargs)
         extra_args = {
             "context": z,
-            "block_mask": self.block_mask if self.net == "LatentDiff" else None,
-            "effective_p_dim": self.effective_p_dim
-            if self.net == "LatentDiff"
-            else None,
+            "block_mask": self.block_mask if self.net == "LMF" else None,
+            "effective_p_dim": self.effective_p_dim if self.net == "LMF" else None,
             "y": y,
             "mint_per_layer": mint_per_layer,
             "padding": padding_mask,
@@ -1277,7 +1275,7 @@ class MeanFlowNet(nn.Module):
         self.analytic_skip = analytic_skip
         self.sigma_data = sigma_data
         # Per-dimension sigma_data for the skip (see skip_coeff): a (D,) buffer,
-        # `sigma_data` in every dim until `CaloHadronic_FM.measure_latent_stats`
+        # `sigma_data` in every dim until `LMF.measure_latent_stats`
         # fills it with the per-dim std of the training target. Only registered
         # when asked for, so archived state dicts keep loading strict.
         self.per_dim_sigma = bool(per_dim_sigma)
@@ -1433,8 +1431,8 @@ class MeanFlowNet(nn.Module):
         return out
 
 
-class CaloHadronic_FM(LatentTargetMixin, nn.Module):
-    """MeanFlow counterpart of `CaloHadronic_Attention` (arXiv:2505.13447).
+class LMF(LatentTargetMixin, nn.Module):
+    """MeanFlow counterpart of `LatentEDM` (arXiv:2505.13447).
 
     Same transformer, conditioning, block-mask handling and gmm prior as the EDM
     version; only the generative objective changes. Instead of a denoiser the
@@ -1454,7 +1452,7 @@ class CaloHadronic_FM(LatentTargetMixin, nn.Module):
     ODE integrates exactly over a finite interval, so sampling needs one (or a few)
     network evaluations instead of the ~2 * num_steps of the Karras samplers.
 
-    Drop-in for `CaloHadronic_Attention`: same `__init__(args, net)`, same
+    Drop-in for `LatentEDM`: same `__init__(args, net)`, same
     `get_loss(...)` / `sample(...)` signatures, and the trainable module is again
     exposed as `self.diffusion` (training.py builds the optimizer from it).
     """
@@ -1764,10 +1762,8 @@ class CaloHadronic_FM(LatentTargetMixin, nn.Module):
         return {
             "context": cond_feats,
             "static_cond": static_cond,
-            "block_mask": self.block_mask if self.net == "LatentDiff" else None,
-            "effective_p_dim": self.effective_p_dim
-            if self.net == "LatentDiff"
-            else None,
+            "block_mask": self.block_mask if self.net == "LMF" else None,
+            "effective_p_dim": self.effective_p_dim if self.net == "LMF" else None,
             "y": y,
             "mint_per_layer": mint_per_layer,
             "padding": padding_mask,
@@ -1789,7 +1785,7 @@ class CaloHadronic_FM(LatentTargetMixin, nn.Module):
         Args:
             x:  Input point clouds, (B, N, d).
             noise: Noise point cloud (B, N, d) -- the eps end of the flow path.
-            sigma: unused, kept so the signature matches `CaloHadronic_Attention`;
+            sigma: unused, kept so the signature matches `LatentEDM`;
                 MeanFlow draws its own time pair (t, r).
             cond_feats: conditioning features (B, C)
         """
@@ -1798,7 +1794,7 @@ class CaloHadronic_FM(LatentTargetMixin, nn.Module):
 
         self.block_mask = None
         self.effective_p_dim = None
-        if self.net == "LatentDiff":
+        if self.net == "LMF":
             self.__calculate_block_mask(padding_mask, **kwargs)
 
         t, r = self.sample_t_r(B, x.device)
@@ -1863,7 +1859,7 @@ class CaloHadronic_FM(LatentTargetMixin, nn.Module):
 
         self.block_mask = None
         self.effective_p_dim = None
-        if self.net == "LatentDiff":
+        if self.net == "LMF":
             kwargs = _n_points_and_top_points_per_layer(y, padding_mask)
             self.__calculate_block_mask(padding_mask, **kwargs)
 

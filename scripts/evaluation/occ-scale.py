@@ -52,13 +52,13 @@ parser.add_argument(
     "--allshowers-path",
     type=str,
     default=None,
-    help="Path to a bussthor-format AllShowers hdf5 (point-cloud showers with "
+    help="Path to an AllShowers-format hdf5 (point-cloud showers with "
     "'showers'/'num_points'/'energies' datasets, per-hit columns [x, z, layer, "
     "energy]), used as an extra comparison source when --compare-allshowers is set.",
 )
 parser.add_argument(
     "--allshowers-cache",
-    default="AllShowers_bussthor",
+    default="AllShowers_reference",
     help="Folder under files/projected_array/ for the --allshowers-path features, so "
     "different AllShowers samples (e.g. solvers) keep separate caches.",
 )
@@ -136,7 +136,7 @@ print("Geant4 window: g4_e_min:", g4_e_min, "g4_e_max:", g4_e_max)
 
 print(name)
 
-# AllShowers (bussthor) is a static reference dataset, independent of which model
+# AllShowers is a static reference dataset, independent of which model
 # checkpoint/name is being evaluated: skip re-loading/re-projecting/re-computing its
 # features once they're already cached on disk for this inc_en/shw combination.
 allshowers_cache_dir = (
@@ -303,7 +303,7 @@ if load_dataset_and_project:
         real_showers[:, 1][real_showers[:, 3] == 0] = 0
 
     if compare_with_AllShowers and not allshowers_cached:
-        print("loading AllShowers (bussthor) showers...")
+        print("loading AllShowers showers...")
         with h5py.File(allshowers_path, "r") as af:
             af_energies = af["energies"][:].reshape(-1)
             af_num_points = af["num_points"][:]
@@ -320,10 +320,10 @@ if load_dataset_and_project:
             for k, idx in enumerate(tqdm(af_idx, desc="Loading AllShowers...")):
                 n_pts = af_num_points[idx]
                 hits = raw_showers[idx].reshape(-1, 4)[:n_pts]
-                # bussthor's own (col0, col1) axis labels ("x", "z") do not match this
+                # AllShowers' (col0, col1) axis labels ("x", "z") do not match this
                 # project's Geant4/ILD x/z convention: cross-checked against Geant4 cog
-                # truth and bussthor's own observables/center_of_energy, this project's
-                # x = -bussthor col1 and z = bussthor col0. projection expects [x, layer, z, e].
+                # truth and AllShowers' observables/center_of_energy, this project's
+                # x = -AllShowers col1 and z = AllShowers col0. projection expects [x, layer, z, e].
                 allshowers_showers[k, 0, :n_pts] = -hits[:, 1]
                 allshowers_showers[k, 1, :n_pts] = hits[:, 2]
                 allshowers_showers[k, 2, :n_pts] = hits[:, 0]

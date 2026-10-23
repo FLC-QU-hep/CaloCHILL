@@ -322,7 +322,7 @@ def select_showers(path, energies, per_energy, min_points):
 
 def prepare_batch(showers, e_gev, cfg, cfg_data, device, include_time=True):
     """The preprocessing gen_utils.get_reco_shower does before it calls the VAE, plus
-    the conditioning the LatentDiff sampler needs. One batch of raw showers in, the
+    the conditioning the LMF sampler needs. One batch of raw showers in, the
     tensors both panels are built from out."""
     showers, points_per_layer, mint_per_layer = get_preprocessing_events(
         showers.copy(), Xmin_pions, Xmax_pions, Xmin_pions, Xmax_pions, layers_axis=2
