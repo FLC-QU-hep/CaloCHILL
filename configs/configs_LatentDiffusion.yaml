@@ -1,0 +1,144 @@
+# Defaults = the paper's CaloCHILL model (large LMF, d_s 256); other paper models in the comments.
+name: 'HGx9_LatentDiff_'
+comet_project: "CaloClouds3-LatentDiff"
+log_comet: true
+
+device: "cuda"
+common:
+  train_bs: 64 # per device
+  epochs: 200
+  seed: 233
+  include_time: true # false for the no-time LMF (with the no-time VAE below)
+
+model:
+  model_name: 'CaloHadronicVAE' # choices: ['CaloHadronic', 'CaloHadronicVAE']
+  # VAE trained with configs_compressor.yaml; other d_s / no-time:
+  #   d_s 64: "vae_ds64/ckpt_best.pt"
+  #   d_s 128: "vae_ds128/ckpt_best.pt"
+  #   d_s 512: "vae_ds512/ckpt_best.pt"
+  #   d_s 1024: "vae_ds1024/ckpt_best.pt"
+  #   no-time d_s 256: "vae_ds256_notime/ckpt_best.pt"
+  vae_path: "vae_ds256/ckpt_best.pt"
+  model_path: null
+  kl_diffusion_weight: 1e-2 # default: 1e-3
+  # 'edm' = EDM diffusion (model_sigma/sampler blocks); 'mean_flow' = MeanFlow, arXiv:2505.13447 (mean_flow block)
+  generative_model: 'mean_flow' # choices: ['edm', 'mean_flow']
+
+optimizer:
+  optimizer: 'Ranger' # choices=['Adam', 'Ranger', 'RAdam', 'AdamMini']
+  max_iters: 5000000
+  max_grad_norm: 2
+  # RangerLite default is 1e-5, large enough to swallow small clipped gradients
+  eps: 1e-8
+
+scheduler:
+  lr_scheduler: 'onecyclelr' # choices=['cosineannealinglr', 'onecyclelr', 'linear']
+  lr_warmup_epochs: 3
+  lr_warmup_factor: 1.0000046051807898 # = 3e-4/3e-5 **(1/5 e-5) only for cos annealing
+  lr: 3e-4 # start lr for cosine annealing
+  max_lr: 3e-5 # for one cycle
+  end_lr: 1e-6
+  # decoupled (AdamW-style) weight decay
+  weight_decay: 0
+  # inert while weight_decay is 0; otherwise keeps the conditioning embeddings out of the decay
+  weight_decay_skip_cond: true
+  pct_start: 0.1 # for one cycle
+  sched_start_epoch: 5e5 #for cos annealing, otherwise 1e6
+  sched_end_epoch: 1e6
+  final_div_factor: 100 # for one cycle
+
+transformer:
+  device: ${device}
+  input_feats: 4
+  layer_cond: true # use y conditioning (layer conditioning)
+  cond_feats: 2 # energy + total number of points
+  ecal_feats: 0
+  layer_dim: 8 # only for CaloHadronicVAE !=0
+  include_time: ${common.include_time}
+  ecal_compressed: false
+
+  time_dim: 32
+  d_model: 512 # large LMF; 256 for the standard LMF (d_s scan 64-1024)
+  nhead: 8
+  num_layers: 2 # large LMF; 1 for the standard LMF
+  dropout: 0.1 # missing key = 0.1
+  # learnable positional embedding over the latent token index (the VAE latent is ordered); zero-init, LatentDiff only
+  latent_pos_emb: true
+  L: 16
+  embed_kwargs:
+    activate_fourier_layer: false # the latent has no high-frequency content
+    include_input: true
+    max_freq: 16 # self.L / 2
+    N_freqs: ${transformer.L}
+    log_sampling: true
+    periodic_fns: [torch.sin, torch.cos]
+
+log_iter: 2000
+
+ema_type: 'inverse'
+ema_power: 0.6667
+ema_max_value: 0.9999
+
+# EDM diffusion parameters for training
+model_sigma:
+  # must equal the std of the diffusion training target (unit-scale latents)
+  sigma_data: 1.0
+  sigma_sample_density:
+    # EDM's lognormal(-1.2, 1.2) shifted by ln(2) for sigma_data=1
+    type: 'lognormal'
+    mean: -0.5
+    std: 1.2
+
+diffusion_loss: 'EDM-monotonic' # l2 or l1 or EDM-monotonic
+diffusion_way: 'EDM' # ['EDM', 'cosine']
+
+# EDM diffusion parameters for sampling
+num_steps: 18
+sampler: 'midpoint'
+sigma_min: 0.002
+sigma_max: 80.0
+rho: 7.0
+s_churn: 0.0
+s_noise: 1.0
+
+# inference-only: rescales the incident energy condition to correct the total-energy bias
+energy_calibration_factor: 1.0
+
+# latent training target (edm and mean_flow): 'sample' = posterior draw, 'mu' = mu / scale, mapped back to scale * x + noise * eps before decoding
+latent:
+  target: 'mu' # choices: ['sample', 'mu']; LatentDiff only
+  scale: 'auto' # std of mu over valid tokens, or a float
+  noise: 'auto' # per-dim mean posterior sigma, or a float (0 = decode mu)
+  stats_batches: 8 # training batches used for the 'auto' measurement
+
+# MeanFlow parameters, only used when model.generative_model == 'mean_flow'
+mean_flow:
+  # how (t, r) is drawn; 'uniform' also trains the r=0, t=1 corner one-step sampling evaluates
+  t_dist: 'uniform' # choices: ['uniform', 'logit_normal']
+  t_mean: -0.4 # logit-normal location (only used when t_dist: logit_normal)
+  t_std: 1.0 # logit-normal scale   (only used when t_dist: logit_normal)
+  # Fourier scale of the (r, t) embeddings; small keeps the network smooth in t
+  time_fourier_scale: 1.0
+  # closed-form Gaussian average velocity as a skip; the network predicts only the residual
+  analytic_skip: true
+  # per-latent-dim sigma_data for that skip, measured at start-up; needs latent target 'mu'
+  analytic_skip_per_dim: true
+  # zero-init the last layer so the model starts at the Gaussian solution (F = 0)
+  zero_init_head: true
+  # EDM-style c_out on the network output; 1.0 = off
+  out_scale: 1.0
+  flow_ratio: 0.5 # fraction of the batch with r != t; the rest is plain flow matching
+  adaptive_p: 1.0 # adaptive loss weight w = 1 / (||delta||^2 + c)^p, detached
+  adaptive_c: 1e-3
+  num_steps: 1 # sampling steps
+  use_jvp: false # false = finite-difference du/dt; true falls back to it anyway (no forward AD for flex attention)
+  # finite-difference step; 1e-2 balances TF32 rounding noise against truncation error
+  fd_eps: 1e-2
+  compile: true # torch.compile the network (fused flex-attention kernels)
+
+# conditional Gaussian-mixture noise prior instead of N(0,1) (scripts/models/gmm_prior.py)
+gmm_prior:
+  enabled: false
+  n_components: 4
+  hidden_dim: 128
+  nll_weight: 1e-3

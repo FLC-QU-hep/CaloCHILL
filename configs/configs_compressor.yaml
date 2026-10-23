@@ -1,0 +1,82 @@
+# Defaults = the paper's d_s 256 VAE; other paper VAEs differ only as noted in the comments.
+name: 'HGx9_VAE_SWD_zdim128_ds256_KL1e-2_2LastattnLayer_' # run label, set to match p_dim_pions / no-time
+comet_project: "CaloClouds3-compressor"
+Acomment: 'VAE-PionClouds'
+log_comet: true
+
+device: "cuda" # "cuda" or "cpu"
+common:
+  train_bs: 64 # per device
+  epochs: 200 # 300 for the no-time VAE
+  seed: 233
+  include_time: true # false for the no-time VAE
+
+model:
+  model_name: 'CaloHadronicVAE' # choices: ['CaloHadronic', 'CaloHadronicVAE']
+  model_path: null
+
+optimizer:
+  optimizer: 'Ranger' # only option
+  max_iters: 5000000
+  max_grad_norm: 2
+
+scheduler:
+  adj_lr: "warm_up"
+  warmup_iters: 3500
+  lr: 0.0015
+  beta1: 0.9
+  beta2: 0.999
+  ema_decay: 0.
+  weight_decay: 0.
+  grad_norm_clip_value: 1.
+  # for one cycle lr
+  max_lr: 1e-3
+  pct_start: 0.003
+  final_div_factor: 100
+  beta_power: 0.1
+
+vae:
+  device: ${device}
+  input_feats: 4 # x, z, logE, logT; 3 for the no-time VAE
+  layer_cond: true # use y conditioning (layer conditioning)
+  cond_feats: 2 # energy + total number of points
+  ecal_feats: 0
+  layer_dim: 8 # only for CaloHadronicVAE !=0
+  pad_value_y: 100
+  include_time: ${common.include_time}
+
+  n_gaussian_mixture: 1 #for single gaussian, >1 for multi gaussian
+  train_bs: ${common.train_bs}
+  downsampling_flag: true
+  loss: "SWD_perlayer_fast" # choices: [SWD_perlayer_fast, SWD_pershower_layer, DCD, EBSW, L1, MSE, MSE_perlayer, p-CD, geom_loss]
+  swd_axis_weight: 1.0 # include_time false only: weight of the per-layer W2 on each feature axis (x, z, logE), added to the SWD; ignored with time
+  loss_cd: false
+  loss_cd_weight: 0.002
+  emd_weight: 0.3
+  kl_integral_asloss: false # must be false with n_gaussian_mixture > 1 or a learned prior
+  gaussian_prior: true # true: KL vs N(0,1); false: learned hierarchical prior (broken with n_gaussian_mixture > 1)
+  kl_weight: 1e-2
+  n_layers: 1
+  out_refinement_layers: 2
+  ctx_dim: 2
+  downsamp_layers: 1
+  p_dim_photons: 512 # dimension of the latent points
+  p_dim_pions: 256 # d_s, number of latent points; paper VAEs: 64, 128, 256, 512, 1024 (no-time: 256)
+  neighbors: 30 # number of neigh for down/up sampling
+  hidden_dim: 128 # points hidden dim
+  z_dim: 128 # dim for mu and logvar in the latent space
+  downsampling_method: "CrossAttn"
+  num_heads: 4
+  activation: GELU # choices: [GELU, ReLU, SiLU (or swish), LeakyReLU]
+  encoder_dropout_p: 0.
+  decoder_dropout_p: 0.
+  norm: layer_norm
+  embed_kwargs:
+    activate_fourier_layer: true
+    include_input: true # don't set it to false
+    max_freq: 8
+    N_freqs: 4
+    log_sampling: true
+    periodic_fns: [torch.sin, torch.cos]
+
+log_iter: 1000

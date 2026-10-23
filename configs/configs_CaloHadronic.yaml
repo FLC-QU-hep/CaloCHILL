@@ -1,0 +1,78 @@
+# CaloHadronic point-cloud EDM diffusion (no latent space), Oct 2025 version
+# (scripts/models/CaloHadronic_legacy.py), settings of run HGx9_ecal_hcal_withT_2025_10_09__13_46_37:
+#   torchrun --standalone --nproc_per_node 1 scripts/training.py --dataset pions --net CaloHadronic
+name: 'HGx9_ecal_hcal_withT_'
+comet_project: "CaloClouds3-ECALHCAL-Time"
+log_comet: true
+
+device: "cuda"
+common:
+  train_bs: 16 # the loader takes train_bs - 1 = 15 showers per batch, as in the original run
+  epochs: 100
+  seed: 255
+  include_time: true
+
+model:
+  model_name: 'CaloHadronicVAE' # hits sorted by layer + per-hit layer conditioning (dataset branch)
+  # resume: "<run folder in log_dir>/ckpt_0.000000_<it>.pt"; the run folder needs a copy of this file
+  model_path: null
+
+optimizer:
+  optimizer: 'Ranger' # choices=['Adam', 'Ranger', 'RAdam', 'AdamMini']
+  eps: 1e-5 # RangerLite default, used by the original run
+  max_grad_norm: 2
+
+scheduler:
+  lr_scheduler: 'cosineannealinglr'
+  lr_warmup_epochs: 3 # > 0: linear (exponential) warm-up before the cosine
+  lr_warmup_factor: 1.0000046051807898 # = (3e-4/3e-5)**(1/5e5): 3e-5 -> 3e-4 in 500k iterations
+  lr: 3e-5 # start lr
+  end_lr: 1e-6
+  weight_decay: 0
+  sched_start_epoch: 5e5 # end of the warm-up, in iterations
+  sched_end_epoch: 3000000
+
+transformer:
+  features: 4 # x, z, logE, logT
+  cond_features: 2 # incident energy, number of hits
+  y_dim: 8 # layer embedding size
+  include_time: ${common.include_time}
+  decoder_crossattn: true
+  d_model: 128
+  nhead: 16
+  num_layers: 4
+  dim_feedforward: 512
+  dropout_rate: 0.1
+  L: 16
+  embed_kwargs:
+    activate_fourier_layer: true
+    include_input: true
+    max_freq: 16
+    N_freqs: ${transformer.L}
+    log_sampling: true
+    periodic_fns: [torch.sin, torch.cos]
+
+log_iter: 200
+
+ema_type: 'inverse'
+ema_power: 0.6667
+ema_max_value: 0.9999
+
+# EDM diffusion, training
+model_sigma:
+  sigma_data: 0.5
+  sigma_sample_density:
+    type: 'lognormal'
+    mean: 0
+    std: 1
+
+diffusion_loss: 'EDM-monotonic' # choices: ['l2', 'l1', 'EDM-monotonic']
+
+# EDM diffusion, sampling (heun only)
+num_steps: 18
+sampler: 'heun'
+sigma_min: 0.01
+sigma_max: 10.0
+rho: 7.0
+s_churn: 0.0
+s_noise: 1.0

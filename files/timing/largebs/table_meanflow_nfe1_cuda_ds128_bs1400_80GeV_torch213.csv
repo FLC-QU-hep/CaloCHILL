@@ -1,0 +1,2 @@
+hardware,model,energy_gev,points_scale,toy_points,nfe,num_steps,batch_size,mean_n_hits,min_n_hits,max_n_hits,pointcount_time_per_sample_s,generation_time_per_sample_s,time_per_sample_s,time_per_sample_std_s,speed_factor
+GPU (NVIDIA A100 80GB PCIe),CaloHadronicVAE,80.0,1.0,0,1,1,1400,3209.625,210,5104,2.745457147414397e-06,0.000506860542497764,0.0005097273485703876,2.165820640028898e-06,4100.231242961048

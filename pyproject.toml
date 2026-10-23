@@ -1,0 +1,7 @@
+[tool.ruff]
+target-version = "py311"
+fix = true
+
+[tool.ruff.lint]
+extend-select = ["I"]
+ignore = ["E731", "E741"]  # lambda assignments and `l` in the plotting scripts

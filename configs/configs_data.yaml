@@ -1,0 +1,32 @@
+log_dir: './logs/'
+calorimeter_layers: 78
+max_points_photons: 1
+max_points_pions: 5376 # should be divisible by 128
+max_points_per_layer_photons: 1
+max_points_per_layer_pions: 413 # 412 +1
+dataset_path_pions: './dataset/hdf5_HGx9new/all_interactions_pions_regular_ECAL+HCAL_10-90GeV_{}.slcio.root_with_time.hdf5'
+dataset_path_photons: './dataset/hdf5_HGx9new/all_interactions_pions_regular_ECAL+HCAL_10-90GeV_{}.slcio.root_with_time.hdf5'
+norm_cond: true # normalize conditioning to [-1,1]
+log_energy: true
+# mean/std of log(E * 1000) over hits with E > 0
+log_mean_pions: -1.8573549
+log_var_pions: 1.7792583
+log_mean_photons: 1
+log_var_photons: 1
+# Timing parameters for ILD
+max_minTperL: 200
+log_mean_time: 1.7896006
+log_var_time: 2.0470169
+norm_latent_min: -5.0
+norm_latent_max: 5.0
+
+dataloader:
+  workers: 20
+  shuffle: True # choices=[True, False]
+  pin_memory: False # choices=[True, False]
+  total_files_pions: 100
+  total_files_photons: 1
+  training_files_pions: 96
+  training_files_photons: 1
+  total_files_test: 3
+  training_files_test: 1

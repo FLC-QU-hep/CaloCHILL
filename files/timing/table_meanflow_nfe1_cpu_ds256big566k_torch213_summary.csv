@@ -1,0 +1,2 @@
+hardware,model,nfe,batch_size,avg_time_per_sample_s,std_across_energies_s,speed_factor
+CPU,CaloHadronicVAE,1,1,0.2205619633818666,0.07363390543687538,9.475795227581965
