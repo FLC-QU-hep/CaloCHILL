@@ -5,8 +5,7 @@ with hit times, in a high-granularity calorimeter. Code for the paper
 *Just CaloCHILL: fast hadronic shower generation in a learned latent space*.
 
 - Model weights: <https://huggingface.co/FLC-QU-hep/CaloCHILL>
-- Dataset: <https://www.fdr.uni-hamburg.de/deposit/22077>
-<!-- TODO: once the FDR record is public, replace the deposit link (here and in Data) with https://doi.org/10.25592/uhhfdm.22077 -->
+- Dataset: <https://doi.org/10.25592/uhhfdm.22077>
 - LayerFM, per-layer numbers of points and earliest hit times: code <https://github.com/FLC-QU-hep/LayerFM>,
   weights <https://huggingface.co/FLC-QU-hep/LayerFM>
 
@@ -59,7 +58,7 @@ the API key is read from `COMET_API_KEY` or from comet's own configuration.
 
 Geant4 $\pi^+$ showers with incident energies from 10 to 90 GeV, on the virtual grid nine
 times finer than the readout (HGx9 point clouds, with hit times), 100 files of which 96 are
-used for training. The dataset is at <https://www.fdr.uni-hamburg.de/deposit/22077>; CaloCHILL is
+used for training. The dataset is at <https://doi.org/10.25592/uhhfdm.22077>; CaloCHILL is
 trained on the `CaloCHILL_pions_10-90GeV_NNN.hdf5` files. Put them in a folder of their own and
 point `CALOCHILL_DATASET` to them (see [Environment variables](#environment-variables)).
 
