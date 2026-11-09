@@ -4,6 +4,7 @@
 with hit times, in a high-granularity calorimeter. Code for the paper
 *Just CaloCHILL: fast hadronic shower generation in a learned latent space*.
 
+- Paper: <https://arxiv.org/abs/2611.08606>
 - Model weights: <https://huggingface.co/FLC-QU-hep/CaloCHILL>
 - Dataset: <https://doi.org/10.25592/uhhfdm.22077>
 - LayerFM, per-layer numbers of points and earliest hit times: code <https://github.com/FLC-QU-hep/LayerFM>,
@@ -236,11 +237,14 @@ pip install pre-commit && pre-commit install          # ruff, ruff-format, yamlf
 ## Citation
 
 ```bibtex
-@article{CaloCHILL,
-  title  = {Just {CaloCHILL}: fast hadronic shower generation in a learned latent space},
-  author = {Day-Hall, Henry and Gaede, Frank and Kasieczka, Gregor and Kr{\"u}ger, Katja and Mozzanica, Martina},
-  year   = {2026},
-  note   = {in preparation}
+@article{Day-Hall:2026bmg,
+    author = {Day-Hall, Henry and Gaede, Frank and Kasieczka, Gregor and Kr{\"u}ger, Katja and Mozzanica, Martina},
+    title = "{Just CaloCHILL: fast hadronic shower generation in a learned latent space}",
+    eprint = "2611.08606",
+    archivePrefix = "arXiv",
+    primaryClass = "physics.ins-det",
+    month = "11",
+    year = "2026"
 }
 ```
 
